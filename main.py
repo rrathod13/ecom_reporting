@@ -46,43 +46,62 @@ def get_price_by_order_id(
     return to_df(rows, cursor)["price"].tolist()
 
 
-def get_prices_for_year(conn, year: int):
-    months = list(range(1, 13))
-    prices = []
-    for month in months:
-        start_date = datetime(year, month, 1)
-        if month == 12:
-            end_date = datetime(year + 1, 1, 1)
-        else:
-            end_date = datetime(year, month + 1, 1)
+def get_prices_for_year(conn: sqlite3.Connection, year: int) -> pd.DataFrame:
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        SELECT 
+            strftime('%Y-%m', o.order_delivered_customer_date) AS month,
+            SUM(oi.price) AS total_price
+        FROM orders o
+        JOIN order_items oi ON o.order_id = oi.order_id
+        WHERE o.order_status = 'delivered'
+            AND strftime('%Y', o.order_delivered_customer_date) = '{year}'
+        GROUP BY strftime('%Y-%m', o.order_delivered_customer_date)
+        ORDER BY month;
+        """,
+    )
+    rows = cursor.fetchall()
+    return to_df(rows, cursor)
 
-        ids = get_order_id_by_date(
-            conn,
-            "delivered",
-            (start_date, end_date),
-            limit=10,
-        )
-        total_price = 0.0
-        for order_id in ids:
-            order_prices = get_price_by_order_id(conn, [order_id])
-            total_price += sum(order_prices)
 
-        prices.append(total_price)
-    return months, prices
+def get_avg_week_prices(
+    conn: sqlite3.Connection, start: datetime, end: datetime
+) -> pd.DataFrame:
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        SELECT 
+            strftime('%Y-%W', o.order_delivered_customer_date) AS week,
+            AVG(oi.price) AS avg_price
+        FROM orders o
+        JOIN order_items oi ON o.order_id = oi.order_id
+        WHERE o.order_status = 'delivered'
+            AND o.order_delivered_customer_date BETWEEN '{start}' AND '{end}'
+        GROUP BY strftime('%Y-%W', o.order_delivered_customer_date)
+        ORDER BY week;
+        """,
+    )
+    rows = cursor.fetchall()
+    return to_df(rows, cursor)
 
 
 def main():
     conn = sqlite3.connect("db/ecom_reporting.db")
 
-    # Get total price per month in 2018
-    months, prices = get_prices_for_year(conn, 2018)
+    # Collect weekly prices from 2017 to Q1 2018
+    res = get_avg_week_prices(
+        conn,
+        datetime(2017, 1, 1),
+        datetime(2018, 3, 31),
+    )
 
     plt.figure()
-    plt.plot(months, prices, marker="o")
-    plt.title("Total Price per Month in 2018")
-    plt.xlabel("Month")
-    plt.ylabel("Total Price")
-    plt.xticks(months)
+    plt.plot(res["week"], res["avg_price"], marker="o")
+    plt.title("Avg Price per Week from 2017 to Q1 2018")
+    plt.xlabel("Week")
+    plt.ylabel("Avg Price [$]")
+    plt.xticks(res["week"], rotation=45)
     plt.grid()
     plt.show()
 
