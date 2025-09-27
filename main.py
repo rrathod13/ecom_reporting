@@ -115,7 +115,7 @@ def rma_report(conn: sqlite3.Connection, year: int, window: int = 4):
     df["rma"] = calc_rma(df, window=window)
 
     # Plot original prices and RMA
-    plt.figure()
+    plt.figure(figsize=(15, 6))
     plt.plot(df["week"], df["price"], marker="o", label="Avg Weekly Price")
     plt.plot(
         df["week"],
@@ -152,7 +152,7 @@ def year_forcast(conn: sqlite3.Connection, reference_year: int, forecast_year: i
         df_ref["seasonal_mults"] * jan_price
     )
 
-    plt.figure()
+    plt.figure(figsize=(10, 6))
     plt.plot(df_for["month"], df_for["avg_price"], marker="o")
     plt.title(
         f"Forecasted Monthly Prices for {forecast_year} based on {reference_year}"
