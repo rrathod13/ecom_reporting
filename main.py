@@ -86,23 +86,30 @@ def get_avg_week_prices(
     return to_df(rows, cursor)
 
 
+def calc_rma(df: pd.DataFrame, window: int) -> list[float]:
+    # Calculate the rolling moving average (RMA) for a given window size
+    return df["avg_price"].rolling(window=window).mean().tolist()
+
+
 def main():
     conn = sqlite3.connect("db/ecom_reporting.db")
 
-    # Collect weekly prices from 2017 to Q1 2018
+    # Get weekly prices for Q2 and Q3 2017
     res = get_avg_week_prices(
         conn,
-        datetime(2017, 1, 1),
-        datetime(2018, 3, 31),
+        datetime(2017, 5, 1),
+        datetime(2017, 8, 30),
     )
 
     plt.figure()
     plt.plot(res["week"], res["avg_price"], marker="o")
-    plt.title("Avg Price per Week from 2017 to Q1 2018")
+    plt.plot(res["week"], calc_rma(res, 4), label="4-week RMA", linestyle="--")
+    plt.title("Avg Price per Week in Q2 2017")
     plt.xlabel("Week")
     plt.ylabel("Avg Price [$]")
     plt.xticks(res["week"], rotation=45)
     plt.grid()
+    plt.legend()
     plt.show()
 
     conn.close()
