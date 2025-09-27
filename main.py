@@ -132,6 +132,7 @@ def rma_report(conn: sqlite3.Connection, year: int, window: int = 4):
     plt.legend()
 
     plt.savefig(PLOT_DIR / f"rma_report_{year}.png")
+    print(f"RMA report for {year} saved to {PLOT_DIR / f'rma_report_{year}.png'}")
 
 
 def year_forcast(conn: sqlite3.Connection, reference_year: int, forecast_year: int):
@@ -165,6 +166,45 @@ def year_forcast(conn: sqlite3.Connection, reference_year: int, forecast_year: i
     plt.savefig(
         PLOT_DIR / f"year_forecast_{forecast_year}_based_on_{reference_year}.png"
     )
+    print(
+        f"Year forecast for {forecast_year} based on {reference_year} saved to {PLOT_DIR / f'year_forecast_{forecast_year}_based_on_{reference_year}.png'}"
+    )
+
+
+def delivery_city(conn: sqlite3.Connection, limit: int | None = None):
+    cursor = conn.cursor()
+    cursor.execute(
+        f"""
+        SELECT 
+            geolocation_city
+        FROM geodata
+        {f'LIMIT {limit}' if limit is not None else ''};
+        """,
+    )
+    rows = cursor.fetchall()
+    df = to_df(rows, cursor)
+
+    # Normalize city names
+    df["geolocation_city"] = df["geolocation_city"].str.replace(
+        "sao paulo", "são paulo", case=False
+    )
+
+    # Create a pie chart of top 10 cities by delivery count
+    city_counts = df["geolocation_city"].value_counts().nlargest(10)
+    plt.figure(figsize=(8, 8))
+    plt.pie(
+        city_counts,
+        labels=city_counts.index.tolist(),
+        autopct="%1.1f%%",
+        startangle=140,
+    )
+    plt.title("Top 10 Cities by Delivery Count")
+    plt.axis("equal")  # Equal aspect ratio ensures that pie is drawn as a circle
+
+    plt.savefig(PLOT_DIR / "delivery_locations.png")
+    print(
+        f"Delivery locations pie chart saved to {PLOT_DIR / 'delivery_locations.png'}"
+    )
 
 
 def main():
@@ -175,6 +215,7 @@ def main():
 
     rma_report(conn, year=2017, window=4)
     year_forcast(conn, reference_year=2017, forecast_year=2018)
+    delivery_city(conn)
 
     conn.close()
 
