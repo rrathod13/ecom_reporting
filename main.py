@@ -1,8 +1,11 @@
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import pandas as pd
+
+PLOT_DIR = Path("plots")
 
 
 def to_df(rows, cursor: sqlite3.Cursor):
@@ -52,7 +55,7 @@ def get_prices_for_year(conn: sqlite3.Connection, year: int) -> pd.DataFrame:
         f"""
         SELECT 
             strftime('%Y-%m', o.order_delivered_customer_date) AS month,
-            SUM(oi.price) AS total_price
+            AVG(oi.price) AS avg_price
         FROM orders o
         JOIN order_items oi ON o.order_id = oi.order_id
         WHERE o.order_status = 'delivered'
@@ -66,14 +69,16 @@ def get_prices_for_year(conn: sqlite3.Connection, year: int) -> pd.DataFrame:
 
 
 def get_avg_week_prices(
-    conn: sqlite3.Connection, start: datetime, end: datetime
+    conn: sqlite3.Connection,
+    start: datetime,
+    end: datetime,
 ) -> pd.DataFrame:
     cursor = conn.cursor()
     cursor.execute(
         f"""
         SELECT 
             strftime('%Y-%W', o.order_delivered_customer_date) AS week,
-            AVG(oi.price) AS avg_price
+            AVG(oi.price) AS price
         FROM orders o
         JOIN order_items oi ON o.order_id = oi.order_id
         WHERE o.order_status = 'delivered'
@@ -88,29 +93,88 @@ def get_avg_week_prices(
 
 def calc_rma(df: pd.DataFrame, window: int) -> list[float]:
     # Calculate the rolling moving average (RMA) for a given window size
-    return df["avg_price"].rolling(window=window).mean().tolist()
+    return df["price"].rolling(window=window).mean().tolist()
+
+
+def calc_mults(df: pd.DataFrame, col: str) -> list[float]:
+    # Calculate seasonal multipliers for each data point based on first point
+    return (df[col] / df[col][0]).tolist()
+
+
+# ----------------
+# KPI Reports
+# ----------------
+def rma_report(conn: sqlite3.Connection, year: int, window: int = 4):
+    df = get_avg_week_prices(
+        conn,
+        start=datetime(year, 1, 1),
+        end=datetime(year, 12, 31),
+    )
+
+    # Calculate RMA
+    df["rma"] = calc_rma(df, window=window)
+
+    # Plot original prices and RMA
+    plt.figure()
+    plt.plot(df["week"], df["price"], marker="o", label="Avg Weekly Price")
+    plt.plot(
+        df["week"],
+        df["rma"],
+        label=f"{window}-Week RMA",
+        color="orange",
+        linestyle="--",
+    )
+    plt.title(f"Avg Weekly Prices and {window}-Week RMA for {year}")
+    plt.xlabel("Week")
+    plt.ylabel("Price [$]")
+    plt.xticks(rotation=45)
+    plt.grid()
+    plt.legend()
+
+    plt.savefig(PLOT_DIR / f"rma_report_{year}.png")
+
+
+def year_forcast(conn: sqlite3.Connection, reference_year: int, forecast_year: int):
+    df_ref = get_prices_for_year(conn, reference_year)
+
+    # Calculate seasonal multipliers based on avg_price
+    df_ref["seasonal_mults"] = calc_mults(df_ref, col="avg_price")
+
+    df_for = get_prices_for_year(conn, forecast_year)
+
+    all_months_for = [f"{forecast_year}-{i:02d}" for i in range(1, 13)]
+    df_for = df_for.set_index("month").reindex(all_months_for).reset_index()
+    df_for.columns = ["month", "avg_price"]
+
+    jan_price = df_for["avg_price"].iloc[0]
+
+    df_for["avg_price"] = df_for["avg_price"].fillna(
+        df_ref["seasonal_mults"] * jan_price
+    )
+
+    plt.figure()
+    plt.plot(df_for["month"], df_for["avg_price"], marker="o")
+    plt.title(
+        f"Forecasted Monthly Prices for {forecast_year} based on {reference_year}"
+    )
+    plt.xlabel("Month")
+    plt.ylabel("Total Price [$]")
+    plt.xticks(rotation=45)
+    plt.grid()
+
+    plt.savefig(
+        PLOT_DIR / f"year_forecast_{forecast_year}_based_on_{reference_year}.png"
+    )
 
 
 def main():
     conn = sqlite3.connect("db/ecom_reporting.db")
 
-    # Get weekly prices for Q2 and Q3 2017
-    res = get_avg_week_prices(
-        conn,
-        datetime(2017, 5, 1),
-        datetime(2017, 8, 30),
-    )
+    # Create a directory for plots if it doesn't exist
+    PLOT_DIR.mkdir(exist_ok=True, parents=True)
 
-    plt.figure()
-    plt.plot(res["week"], res["avg_price"], marker="o")
-    plt.plot(res["week"], calc_rma(res, 4), label="4-week RMA", linestyle="--")
-    plt.title("Avg Price per Week in Q2 2017")
-    plt.xlabel("Week")
-    plt.ylabel("Avg Price [$]")
-    plt.xticks(res["week"], rotation=45)
-    plt.grid()
-    plt.legend()
-    plt.show()
+    rma_report(conn, year=2017, window=4)
+    year_forcast(conn, reference_year=2017, forecast_year=2018)
 
     conn.close()
 
