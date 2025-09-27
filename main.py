@@ -46,18 +46,15 @@ def get_price_by_order_id(
     return to_df(rows, cursor)["price"].tolist()
 
 
-def main():
-    conn = sqlite3.connect("db/ecom_reporting.db")
-
-    # Get total price per month in 2018
+def get_prices_for_year(conn, year: int):
     months = list(range(1, 13))
     prices = []
     for month in months:
-        start_date = datetime(2018, month, 1)
+        start_date = datetime(year, month, 1)
         if month == 12:
-            end_date = datetime(2019, 1, 1)
+            end_date = datetime(year + 1, 1, 1)
         else:
-            end_date = datetime(2018, month + 1, 1)
+            end_date = datetime(year, month + 1, 1)
 
         ids = get_order_id_by_date(
             conn,
@@ -71,7 +68,14 @@ def main():
             total_price += sum(order_prices)
 
         prices.append(total_price)
-        print(f"Month: {month}, Total Price: {total_price}")
+    return months, prices
+
+
+def main():
+    conn = sqlite3.connect("db/ecom_reporting.db")
+
+    # Get total price per month in 2018
+    months, prices = get_prices_for_year(conn, 2018)
 
     plt.figure()
     plt.plot(months, prices, marker="o")
