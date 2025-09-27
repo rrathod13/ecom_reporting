@@ -1,3 +1,4 @@
+# connect to a SQLite e-commerce database, compute two price KPIs (weekly trend with smoothing and a simple yearly forecast), plus a top cities chart, and save all the visuals as PNG files.
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -7,11 +8,11 @@ import pandas as pd
 
 PLOT_DIR = Path("plots")
 
-
+# Converts SQL query results to a pandas DataFrame
 def to_df(rows, cursor: sqlite3.Cursor):
     return pd.DataFrame(rows, columns=[desc[0] for desc in cursor.description])
 
-
+# Gets order IDs based on status and delivery date range
 def get_order_id_by_date(
     conn: sqlite3.Connection,
     order_status: str,
@@ -30,7 +31,7 @@ def get_order_id_by_date(
     rows = cursor.fetchall()
     return to_df(rows, cursor)["order_id"].tolist()
 
-
+# Gets prices based on order IDs
 def get_price_by_order_id(
     conn: sqlite3.Connection,
     order_id: list[str],
@@ -48,7 +49,7 @@ def get_price_by_order_id(
     rows = cursor.fetchall()
     return to_df(rows, cursor)["price"].tolist()
 
-
+# To compute monthly average item price for a specific year
 def get_prices_for_year(conn: sqlite3.Connection, year: int) -> pd.DataFrame:
     cursor = conn.cursor()
     cursor.execute(
@@ -67,7 +68,7 @@ def get_prices_for_year(conn: sqlite3.Connection, year: int) -> pd.DataFrame:
     rows = cursor.fetchall()
     return to_df(rows, cursor)
 
-
+# To compute average weekly item price within a date range
 def get_avg_week_prices(
     conn: sqlite3.Connection,
     start: datetime,
@@ -90,12 +91,12 @@ def get_avg_week_prices(
     rows = cursor.fetchall()
     return to_df(rows, cursor)
 
-
+# Add smoothing to weekly prices using a Rolling Moving Average (RMA) - Reduces week to week noise so trends are easier to see
 def calc_rma(df: pd.DataFrame, window: int) -> list[float]:
     # Calculate the rolling moving average (RMA) for a given window size
     return df["price"].rolling(window=window).mean().tolist()
 
-
+# Compute seasonal multipliers relative to the first value in a series
 def calc_mults(df: pd.DataFrame, col: str) -> list[float]:
     # Calculate seasonal multipliers for each data point based on first point
     return (df[col] / df[col][0]).tolist()
@@ -104,6 +105,7 @@ def calc_mults(df: pd.DataFrame, col: str) -> list[float]:
 # ----------------
 # KPI Reports
 # ----------------
+# Weekly price trend with RMA smoothing
 def rma_report(conn: sqlite3.Connection, year: int, window: int = 4):
     df = get_avg_week_prices(
         conn,
@@ -134,7 +136,7 @@ def rma_report(conn: sqlite3.Connection, year: int, window: int = 4):
     plt.savefig(PLOT_DIR / f"rma_report_{year}.png")
     print(f"RMA report for {year} saved to {PLOT_DIR / f'rma_report_{year}.png'}")
 
-
+# Create a monthly price forecast for the forecast year using the seasonal pattern from a reference year
 def year_forcast(conn: sqlite3.Connection, reference_year: int, forecast_year: int):
     df_ref = get_prices_for_year(conn, reference_year)
 
@@ -159,7 +161,7 @@ def year_forcast(conn: sqlite3.Connection, reference_year: int, forecast_year: i
         f"Forecasted Monthly Prices for {forecast_year} based on {reference_year}"
     )
     plt.xlabel("Month")
-    plt.ylabel("Total Price [$]")
+    plt.ylabel("Average Price [$]")
     plt.xticks(rotation=45)
     plt.grid()
 
@@ -170,7 +172,7 @@ def year_forcast(conn: sqlite3.Connection, reference_year: int, forecast_year: i
         f"Year forecast for {forecast_year} based on {reference_year} saved to {PLOT_DIR / f'year_forecast_{forecast_year}_based_on_{reference_year}.png'}"
     )
 
-
+# Pie chart of top 10 cities by delivery count
 def delivery_city(conn: sqlite3.Connection, limit: int | None = None):
     cursor = conn.cursor()
     cursor.execute(
@@ -184,7 +186,7 @@ def delivery_city(conn: sqlite3.Connection, limit: int | None = None):
     rows = cursor.fetchall()
     df = to_df(rows, cursor)
 
-    # Normalize city names
+    # Normalize city names 
     df["geolocation_city"] = df["geolocation_city"].str.replace(
         "sao paulo", "são paulo", case=False
     )
